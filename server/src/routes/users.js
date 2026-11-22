@@ -10,6 +10,17 @@ router.get('/', async (_req, res) => {
   res.json(users.map((u) => ({ id: u._id, name: u.name, color: u.color })));
 });
 
+// Recherche de membres par début de pseudo (pour démarrer une conversation)
+router.get('/search', async (req, res) => {
+  const q = String(req.query.q || '').trim().toLowerCase().slice(0, 24);
+  if (!q) return res.json([]);
+  const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const filter = { nameKey: { $regex: '^' + escaped } };
+  if (req.user) filter._id = { $ne: req.user._id };
+  const users = await User.find(filter, 'name color').sort({ nameKey: 1 }).limit(8).lean();
+  res.json(users.map((u) => ({ id: u._id, name: u.name, color: u.color })));
+});
+
 // Profil + stats
 router.get('/:name', async (req, res) => {
   const user = await User.findOne({ nameKey: String(req.params.name).toLowerCase() });

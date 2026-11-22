@@ -11,6 +11,7 @@ import { optionalAuth } from './middleware/auth.js';
 import authRoutes from './routes/auth.js';
 import userRoutes from './routes/users.js';
 import postRoutes from './routes/posts.js';
+import messageRoutes from './routes/messages.js';
 
 const PORT = process.env.PORT || 3000;
 const app = express();
@@ -29,6 +30,7 @@ app.use('/api', optionalAuth);
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/posts', postRoutes);
+app.use('/api/messages', messageRoutes);
 app.use('/api', (_req, res) => res.status(404).json({ error: 'Route inconnue' }));
 
 // En production, Express sert l'application Angular compilée

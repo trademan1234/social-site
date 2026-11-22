@@ -3,12 +3,13 @@ import { RouterLink, RouterOutlet } from '@angular/router';
 import { ToastService } from './core/api.service';
 import { AuthService } from './core/auth.service';
 import { JoinDialogComponent } from './features/join-dialog.component';
+import { ChatBubbleComponent } from './features/chat-bubble.component';
 import { AvatarComponent } from './shared/ui';
 
 @Component({
   selector: 'app-root',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterOutlet, RouterLink, AvatarComponent, JoinDialogComponent],
+  imports: [RouterOutlet, RouterLink, AvatarComponent, JoinDialogComponent, ChatBubbleComponent],
   template: `
     <div class="bg-orbs" aria-hidden="true"><span></span><span></span><span></span></div>
 
@@ -40,6 +41,10 @@ import { AvatarComponent } from './shared/ui';
 
     @if (auth.joinOpen()) {
       <app-join-dialog />
+    }
+
+    @if (auth.isLoggedIn()) {
+      <app-chat-bubble />
     }
 
     <div class="toasts" aria-live="polite">

@@ -58,6 +58,20 @@ export interface Page<T> {
   next: string | null;
 }
 
+export interface ChatMessage {
+  id: string;
+  text: string;
+  fromMe: boolean;
+  read: boolean;
+  createdAt: string;
+}
+
+export interface Conversation {
+  user: UserLite;
+  last: ChatMessage;
+  unread: number;
+}
+
 export interface ProfileStats {
   posts: number;
   photos: number;

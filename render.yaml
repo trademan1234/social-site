@@ -15,3 +15,9 @@ services:
         value: "1"
       - key: MONGO_URI
         sync: false
+      - key: GDRIVE_CLIENT_ID
+        sync: false
+      - key: GDRIVE_CLIENT_SECRET
+        sync: false
+      - key: GDRIVE_REFRESH_TOKEN
+        sync: false

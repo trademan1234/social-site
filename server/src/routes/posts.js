@@ -1,6 +1,4 @@
 import { Router } from 'express';
-import fs from 'node:fs/promises';
-import path from 'node:path';
 import crypto from 'node:crypto';
 import multer from 'multer';
 import sharp from 'sharp';
@@ -8,9 +6,9 @@ import mongoose from 'mongoose';
 import { Post, Comment, REACTIONS } from '../models/Post.js';
 import { User } from '../models/User.js';
 import { requireAuth } from '../middleware/auth.js';
+import { saveFile, removeFile } from '../storage.js';
 
 const router = Router();
-const UPLOAD_DIR = path.resolve('uploads');
 const IMAGE_MIME = /^image\/(jpeg|png|webp|gif|avif|heic|heif)$/;
 const VIDEO_MIME = /^video\/(mp4|webm|quicktime|ogg)$/;
 const VIDEO_EXT = { 'video/mp4': '.mp4', 'video/webm': '.webm', 'video/quicktime': '.mov', 'video/ogg': '.ogv' };
@@ -84,29 +82,32 @@ router.post('/', requireAuth, upload.single('media'), async (req, res) => {
   if (IMAGE_MIME.test(req.file.mimetype)) {
     // Optimisation : conversion WebP, redimensionnement, rotation EXIF, + miniature légère pour le fil
     type = 'photo';
+    let full, thumb;
     try {
       const img = sharp(req.file.buffer).rotate();
-      const full = await img.clone()
+      full = await img.clone()
         .resize({ width: 1600, height: 1600, fit: 'inside', withoutEnlargement: true })
         .webp({ quality: 82 })
         .toBuffer({ resolveWithObject: true });
-      const thumb = await img.clone().resize({ width: 640, withoutEnlargement: true }).webp({ quality: 72 }).toBuffer();
-      await fs.writeFile(path.join(UPLOAD_DIR, `${base}.webp`), full.data);
-      await fs.writeFile(path.join(UPLOAD_DIR, `${base}-sm.webp`), thumb);
-      media = {
-        url: `/uploads/${base}.webp`,
-        thumb: `/uploads/${base}-sm.webp`,
-        width: full.info.width,
-        height: full.info.height,
-        mime: 'image/webp',
-      };
+      thumb = await img.clone().resize({ width: 640, withoutEnlargement: true }).webp({ quality: 72 }).toBuffer();
     } catch {
       return res.status(400).json({ error: 'Image illisible.' });
     }
+    await Promise.all([
+      saveFile(`${base}.webp`, full.data, 'image/webp'),
+      saveFile(`${base}-sm.webp`, thumb, 'image/webp'),
+    ]);
+    media = {
+      url: `/uploads/${base}.webp`,
+      thumb: `/uploads/${base}-sm.webp`,
+      width: full.info.width,
+      height: full.info.height,
+      mime: 'image/webp',
+    };
   } else {
     type = 'video';
     const file = `${base}${VIDEO_EXT[req.file.mimetype] || '.mp4'}`;
-    await fs.writeFile(path.join(UPLOAD_DIR, file), req.file.buffer);
+    await saveFile(file, req.file.buffer, req.file.mimetype);
     const w = Number(req.body.width) || undefined;
     const h = Number(req.body.height) || undefined;
     media = { url: `/uploads/${file}`, mime: req.file.mimetype, width: w, height: h };
@@ -123,7 +124,7 @@ router.delete('/:id', requireAuth, async (req, res) => {
   if (!post.author.equals(req.user._id)) return res.status(403).json({ error: "Ce n'est pas ta publication." });
   await Promise.all([post.deleteOne(), Comment.deleteMany({ post: post._id })]);
   for (const u of [post.media?.url, post.media?.thumb].filter(Boolean)) {
-    fs.unlink(path.join(UPLOAD_DIR, path.basename(u))).catch(() => {});
+    removeFile(u);
   }
   res.status(204).end();
 });

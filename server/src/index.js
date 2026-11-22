@@ -6,6 +6,7 @@ import helmet from 'helmet';
 import cors from 'cors';
 import morgan from 'morgan';
 import { connectDb } from './db.js';
+import { uploadsRouter, storageMode } from './storage.js';
 import { optionalAuth } from './middleware/auth.js';
 import authRoutes from './routes/auth.js';
 import userRoutes from './routes/users.js';
@@ -22,8 +23,7 @@ app.use(express.json({ limit: '100kb' }));
 if (process.env.NODE_ENV !== 'production') app.use(morgan('dev'));
 
 // Médias : noms uniques -> cache navigateur 1 an (immutable). Les requêtes "Range" permettent le streaming vidéo.
-fs.mkdirSync(path.resolve('uploads'), { recursive: true });
-app.use('/uploads', express.static(path.resolve('uploads'), { maxAge: '365d', immutable: true }));
+app.use('/uploads', uploadsRouter());
 
 app.use('/api', optionalAuth);
 app.use('/api/auth', authRoutes);
@@ -53,4 +53,5 @@ app.use((err, _req, res, _next) => {
 });
 
 await connectDb();
+console.log(`📁 Stockage des médias : ${storageMode}`);
 app.listen(PORT, () => console.log(`🚀 Pulse sur http://localhost:${PORT}`));

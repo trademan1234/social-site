@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: pulse
+    runtime: node
+    plan: free
+    buildCommand: npm --prefix server ci && npm --prefix client ci --include=dev && npm --prefix client run build
+    startCommand: npm --prefix server start
+    healthCheckPath: /api/posts
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      - key: MONGOMS_DISABLE_POSTINSTALL
+        value: "1"
+      - key: MONGO_URI
+        sync: false

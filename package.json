@@ -1,0 +1,14 @@
+{
+  "name": "pulse",
+  "private": true,
+  "description": "Pulse – réseau social MEAN (MongoDB, Express, Angular, Node)",
+  "scripts": {
+    "install:all": "npm --prefix server install && npm --prefix client install",
+    "dev": "concurrently -n api,web -c magenta,cyan \"npm --prefix server run dev\" \"npm --prefix client start\"",
+    "build": "npm --prefix client run build",
+    "start": "npm run build && npm --prefix server start"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}

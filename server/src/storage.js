@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import express from 'express';
 
 /**
@@ -99,11 +100,82 @@ async function driveSave(name, buffer, mime) {
   idCache.set(name, (await r.json()).id);
 }
 
+// ---------- Cache disque local (mode Drive) ----------
+// Chrome lit une vidéo en de nombreuses requêtes "Range" : sans cache, chacune repasse par Drive (~1,5 s).
+// On garde donc une copie sur le disque du serveur, Drive restant la copie permanente.
+
+const CACHE_MAX = (Number(process.env.MEDIA_CACHE_MB) || 500) * 1024 * 1024;
+const downloading = new Map(); // nom -> Promise
+
+const cachePath = (name) => path.join(UPLOAD_DIR, name);
+
+async function cacheWrite(name, buffer) {
+  try {
+    await fsp.writeFile(cachePath(name), buffer);
+    pruneCache();
+  } catch {
+    /* le cache est facultatif */
+  }
+}
+
+/** Télécharge le fichier complet depuis Drive vers le cache (une seule fois à la fois par fichier). */
+function cacheFill(name, id) {
+  if (downloading.has(name)) return downloading.get(name);
+  const tmp = `${cachePath(name)}.${process.pid}.part`;
+  const p = (async () => {
+    const r = await drive(`/files/${id}?alt=media`);
+    if (!r.ok) throw new Error(`Google Drive ${r.status}`);
+    await pipeline(Readable.fromWeb(r.body), fs.createWriteStream(tmp));
+    await fsp.rename(tmp, cachePath(name));
+    pruneCache();
+  })()
+    .catch(() => fsp.rm(tmp, { force: true }))
+    .finally(() => downloading.delete(name));
+  downloading.set(name, p);
+  return p;
+}
+
+let pruning = false;
+/** Supprime les fichiers les moins récemment lus si le cache dépasse CACHE_MAX. */
+async function pruneCache() {
+  if (pruning) return;
+  pruning = true;
+  try {
+    const files = [];
+    for (const f of await fsp.readdir(UPLOAD_DIR)) {
+      if (!SAFE_NAME.test(f)) continue; // ignore .gitkeep et les .part en cours
+      const st = await fsp.stat(cachePath(f)).catch(() => null);
+      if (st) files.push({ f, size: st.size, t: st.mtimeMs });
+    }
+    let total = files.reduce((s, x) => s + x.size, 0);
+    for (const x of files.sort((a, b) => a.t - b.t)) {
+      if (total <= CACHE_MAX) break;
+      await fsp.rm(cachePath(x.f), { force: true });
+      total -= x.size;
+    }
+  } catch {
+    /* ignore : nouvel essai au prochain ajout */
+  } finally {
+    pruning = false;
+  }
+}
+
+function serveFromCache(req, res, name) {
+  const now = new Date();
+  fsp.utimes(cachePath(name), now, now).catch(() => {}); // marque comme récemment lu
+  res.sendFile(cachePath(name), { maxAge: '365d', immutable: true, acceptRanges: true }, (err) => {
+    if (err && !res.headersSent) res.status(err.status || 500).end();
+  });
+}
+
 async function driveServe(req, res, next) {
   const name = req.params.name;
   if (!SAFE_NAME.test(name)) return res.status(404).end();
+  if (fs.existsSync(cachePath(name))) return serveFromCache(req, res, name);
   try {
     const id = await fileId(name);
+    if (!id) return res.status(404).end();
+    cacheFill(name, id); // en arrière-plan : les requêtes suivantes seront servies depuis le disque
     if (!id) return res.status(404).end();
     const headers = req.headers.range ? { Range: req.headers.range } : {};
     const r = await drive(`/files/${id}?alt=media`, { headers });
@@ -128,6 +200,7 @@ async function driveServe(req, res, next) {
 }
 
 async function driveRemove(name) {
+  await fsp.rm(cachePath(name), { force: true });
   const id = await fileId(name);
   if (!id) return;
   await drive(`/files/${id}`, { method: 'DELETE' });
@@ -137,7 +210,11 @@ async function driveRemove(name) {
 // ---------- API commune ----------
 
 export async function saveFile(name, buffer, mime) {
-  if (useDrive) return driveSave(name, buffer, mime);
+  if (useDrive) {
+    await driveSave(name, buffer, mime);
+    await cacheWrite(name, buffer);
+    return;
+  }
   await fsp.writeFile(path.join(UPLOAD_DIR, name), buffer);
 }
 
@@ -150,10 +227,10 @@ export function removeFile(name) {
 /** Routeur à monter sur /uploads */
 export function uploadsRouter() {
   const router = express.Router();
+  fs.mkdirSync(UPLOAD_DIR, { recursive: true });
   if (useDrive) {
     router.get('/:name', driveServe);
   } else {
-    fs.mkdirSync(UPLOAD_DIR, { recursive: true });
     router.use(express.static(UPLOAD_DIR, { maxAge: '365d', immutable: true }));
   }
   return router;
